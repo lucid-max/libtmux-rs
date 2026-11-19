@@ -18,6 +18,9 @@ which a published crate cannot link by a relative path.
 
 ### Added
 
+- `CommandResult::refusal_for_public_target` preserves duplicate-session
+  classification after sensitive arguments only when the echoed name matches
+  the caller's explicit public target. Other sensitive output stays withheld.
 - `ServerBuilder::env` and `env_remove` set or remove inherited variables for
   every tmux client, including clients that start a daemon. `PATH` and
   `TMUX_TMPDIR` overrides also control executable and socket resolution.

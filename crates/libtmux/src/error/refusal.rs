@@ -1,3 +1,5 @@
+use std::os::unix::ffi::OsStrExt as _;
+
 use super::{
     Error, NO_CURRENT_TARGET, ObjectKind, OptionErrorKind, SENSITIVE_OUTPUT_WITHHELD,
     ServerGoneKind,
@@ -171,6 +173,14 @@ impl Error {
                 Self::ObjectGone { id, .. }
                     if target.is_some_and(|target| id == &target.to_string_lossy())
             ) || matches!(classified, Self::ServerGone { .. })
+                || matches!(classified, Self::SessionExists { .. })
+                    && target.is_some_and(|target| {
+                        result
+                            .stderr()
+                            .trim_ascii()
+                            .strip_prefix(b"duplicate session:")
+                            .is_some_and(|echo| echo.trim_ascii() == target.as_bytes())
+                    })
             {
                 return classified;
             }

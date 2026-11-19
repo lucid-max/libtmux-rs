@@ -80,6 +80,38 @@ fn client_environment_rejects_invalid_and_managed_overrides() {
     assert!(!format!("{builder:?}").contains("private-builder-sentinel"));
 }
 
+#[cfg(feature = "test-support")]
+#[tokio::test]
+async fn real_tmux_sensitive_duplicate_retains_only_a_matching_public_name() {
+    let guard = libtmux::test::TestServer::new().await.unwrap();
+    guard.session("public-duplicate").await.unwrap();
+    let result = guard
+        .server()
+        .cmd(
+            Command::new("new-session")
+                .arg("-d")
+                .arg("-s")
+                .arg("public-duplicate")
+                .arg("-e")
+                .sensitive_arg("PRIVATE=synthetic-sensitive-token")
+                .arg("--")
+                .sensitive_arg("sleep 30"),
+        )
+        .await
+        .unwrap();
+    let error = result
+        .refusal_for_public_target("new-session", "public-duplicate")
+        .unwrap();
+    assert!(matches!(&error, Error::SessionExists { name } if name == "public-duplicate"));
+    assert!(!format!("{error:?} {error}").contains("synthetic-sensitive-token"));
+    let error = result
+        .refusal_for_public_target("new-session", "other-public-name")
+        .unwrap();
+    assert!(matches!(error, Error::CommandFailed { .. }));
+    assert!(!format!("{error:?} {error}").contains("public-duplicate"));
+    guard.shutdown().await.unwrap();
+}
+
 #[tokio::test]
 async fn real_tmux_client_environment_is_applied_before_server_start() {
     const CHILD: &str = "LIBTMUX_CLIENT_ENV_CHILD";

@@ -348,6 +348,7 @@ function libtmux::CommandResult::command: const fn(&self) -> &libtmux::CommandSu
 function libtmux::CommandResult::exit_code: const fn(&self) -> Option<i32>
 function libtmux::CommandResult::into_streams: fn(self) -> (Vec<u8>, Vec<u8>)
 function libtmux::CommandResult::refusal_for: fn(&self, operation: &'static str) -> Option<libtmux::Error>
+function libtmux::CommandResult::refusal_for_public_target: fn(&self, operation: &'static str, public_target: impl AsRef<OsStr>) -> Option<libtmux::Error>
 function libtmux::CommandResult::request_id: const fn(&self) -> u64
 function libtmux::CommandResult::signal: const fn(&self) -> Option<i32>
 function libtmux::CommandResult::stderr: fn(&self) -> &[u8]

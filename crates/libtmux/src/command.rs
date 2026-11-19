@@ -1365,6 +1365,31 @@ impl CommandResult {
         }
     }
 
+    /// Classify a refusal using a target the caller declares public.
+    ///
+    /// Sensitive command output stays withheld, except a missing object or
+    /// duplicate session whose echoed identity exactly matches `public_target`.
+    /// Pass only a target safe to include in diagnostics; never pass a secret.
+    /// A mismatched duplicate name remains a redacted command failure.
+    ///
+    /// Returns `None` when the command succeeded.
+    #[must_use]
+    pub fn refusal_for_public_target(
+        &self,
+        operation: &'static str,
+        public_target: impl AsRef<OsStr>,
+    ) -> Option<crate::Error> {
+        if self.success() {
+            None
+        } else {
+            Some(crate::Error::from_refused_result(
+                operation,
+                self,
+                Some(public_target.as_ref()),
+            ))
+        }
+    }
+
     /// Return the process exit code, or `None` when it ended by signal.
     ///
     /// # Examples

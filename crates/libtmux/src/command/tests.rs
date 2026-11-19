@@ -86,6 +86,42 @@ fn command_results_classify_refusals_without_exposing_sensitive_output() {
 }
 
 #[test]
+fn sensitive_duplicate_refusals_disclose_only_the_declared_public_target() {
+    let result = command_result(
+        Command::new("new-session").sensitive_arg("sentinel-private-argv"),
+        exit_status(1),
+        b"",
+        b"duplicate session: public-session\n",
+    );
+    let refusal = result
+        .refusal_for_public_target("new-session", "public-session")
+        .unwrap();
+    assert!(matches!(&refusal, crate::Error::SessionExists { name } if name == "public-session"));
+    assert!(!format!("{refusal:?} {refusal}").contains("sentinel-private-argv"));
+    for public in ["wrong-session", "public-session "] {
+        let refusal = result
+            .refusal_for_public_target("new-session", public)
+            .unwrap();
+        assert!(matches!(refusal, crate::Error::CommandFailed { .. }));
+        assert!(!format!("{refusal:?} {refusal}").contains("public-session"));
+    }
+    assert!(matches!(
+        result.refusal_for("new-session").unwrap(),
+        crate::Error::CommandFailed { .. }
+    ));
+    let non_utf8 = command_result(
+        Command::new("new-session").sensitive_arg("private"),
+        exit_status(1),
+        b"",
+        b"duplicate session: public-\xff\n",
+    );
+    let refusal = non_utf8
+        .refusal_for_public_target("new-session", "public-\u{fffd}")
+        .unwrap();
+    assert!(matches!(refusal, crate::Error::CommandFailed { .. }));
+}
+
+#[test]
 fn dispatch_lowering_escapes_only_each_final_semicolon() {
     let cases: &[(&[u8], &[u8])] = &[
         (b";", b"\\;"),
