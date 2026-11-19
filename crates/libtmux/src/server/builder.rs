@@ -282,6 +282,8 @@ impl ServerBuilder {
     ///
     /// A later [`Self::env`] with the same name replaces the removal. Server
     /// selection variables listed by [`Self::env`] cannot be removed here.
+    /// Removing `TMUX_TMPDIR` discards its inherited socket-root choice; clients
+    /// still receive the canonical root resolved for this handle.
     /// Invalid names are refused by [`Self::build`].
     ///
     /// # Examples
