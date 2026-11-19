@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt as _;
@@ -54,6 +55,33 @@ pub(crate) struct BuildContext {
 }
 
 impl BuildContext {
+    pub(crate) fn with_client_environment(
+        mut self,
+        environment: &BTreeMap<OsString, Option<OsString>>,
+    ) -> Result<Self, ServerConfigurationErrorKind> {
+        for (key, value) in environment {
+            let name = key.as_bytes();
+            if name.is_empty() || name.contains(&0) || name.contains(&b'=') {
+                return Err(ServerConfigurationErrorKind::InvalidEnvironmentName);
+            }
+            if value
+                .as_ref()
+                .is_some_and(|value| value.as_bytes().contains(&0))
+            {
+                return Err(ServerConfigurationErrorKind::InvalidEnvironmentValue);
+            }
+            match name {
+                b"TMUX" | b"TMUX_PANE" | b"LIBTMUX_SOCKET" | b"LIBTMUX_SOCKET_PATH" => {
+                    return Err(ServerConfigurationErrorKind::ManagedEnvironmentVariable);
+                }
+                b"PATH" => self.path.clone_from(value),
+                b"TMUX_TMPDIR" => self.socket_root.clone_from(value),
+                _ => {}
+            }
+        }
+        Ok(self)
+    }
+
     pub(crate) fn new(
         working_directory: Option<PathBuf>,
         path: Option<OsString>,
@@ -161,6 +189,24 @@ pub(crate) struct CoreConfiguration {
 }
 
 impl CoreConfiguration {
+    pub(crate) fn with_client_environment(
+        mut self,
+        environment: BTreeMap<OsString, Option<OsString>>,
+    ) -> Self {
+        for (key, value) in environment {
+            // These were resolved from BuildContext into the captured launch
+            // context already; keep its canonical socket root intact.
+            if matches!(key.as_bytes(), b"PATH" | b"TMUX_TMPDIR") {
+                continue;
+            }
+            self.launch = match value {
+                Some(value) => self.launch.with_environment(key, value),
+                None => self.launch.with_environment_removed(key),
+            };
+        }
+        self
+    }
+
     /// Replace the budgets this server's dispatches run under.
     pub(crate) const fn with_limits(
         mut self,

@@ -16,6 +16,12 @@ which a published crate cannot link by a relative path.
 
 ## Unreleased
 
+### Added
+
+- `ServerBuilder::env` and `env_remove` set or remove inherited variables for
+  every tmux client, including clients that start a daemon. `PATH` and
+  `TMUX_TMPDIR` overrides also control executable and socket resolution.
+
 ## 0.1.2 - 2026-11-01
 
 No entries for `libtmux`.

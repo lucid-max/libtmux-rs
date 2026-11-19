@@ -72,6 +72,12 @@ pub enum ServerConfigurationErrorKind {
     /// tmux writes `socket,pid,session`. An empty value, or one with no
     /// socket before the first comma, means something rewrote it.
     MalformedTmuxVariable,
+    /// A client environment name was empty or contained NUL or `=`.
+    InvalidEnvironmentName,
+    /// A client environment value contained NUL.
+    InvalidEnvironmentValue,
+    /// A client environment override tried to change server selection.
+    ManagedEnvironmentVariable,
 }
 
 /// Why a control-mode connection failed.

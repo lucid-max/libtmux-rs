@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
@@ -43,6 +44,7 @@ pub struct ServerBuilder {
     timeout: Duration,
     output_limits: OutputLimits,
     dispatch_limits: DispatchLimits,
+    environment: BTreeMap<OsString, Option<OsString>>,
     #[cfg(feature = "control-mode")]
     control_client_limits: ControlClientLimits,
     #[cfg(feature = "test-support")]
@@ -72,6 +74,7 @@ impl fmt::Debug for ServerBuilder {
             .field("timeout", &self.timeout)
             .field("output_limits", &self.output_limits)
             .field("dispatch_limits", &self.dispatch_limits);
+        debug.field("environment_overrides", &self.environment.len());
         #[cfg(feature = "control-mode")]
         debug.field("control_client_limits", &self.control_client_limits);
         debug.finish_non_exhaustive()
@@ -89,6 +92,7 @@ impl ServerBuilder {
             timeout: CoreConfiguration::default_timeout(),
             output_limits: OutputLimits::default(),
             dispatch_limits: DispatchLimits::default(),
+            environment: BTreeMap::new(),
             #[cfg(feature = "control-mode")]
             control_client_limits: ControlClientLimits::default(),
             #[cfg(feature = "test-support")]
@@ -244,6 +248,57 @@ impl ServerBuilder {
         self
     }
 
+    /// Set a variable for every tmux client process this handle starts.
+    ///
+    /// The last assignment or removal of a name wins. Other variables remain
+    /// inherited. A server started by a client inherits that client's environment;
+    /// an existing server keeps its own. This does not change this process's
+    /// environment or add variables to an existing session.
+    ///
+    /// `PATH` also controls executable resolution. `TMUX_TMPDIR` also controls
+    /// named and default socket resolution. Both are captured at [`Self::build`].
+    /// `TMUX`, `TMUX_PANE`, `LIBTMUX_SOCKET` and `LIBTMUX_SOCKET_PATH` are reserved
+    /// for this handle's server selection and cannot be overridden here.
+    ///
+    /// Invalid names or values are refused by [`Self::build`]. Values are omitted
+    /// from this builder's debug output and configuration errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = libtmux::Server::builder()
+    ///     .env("LANG", "C.UTF-8")
+    ///     .build()?;
+    /// # let _ = server;
+    /// # Ok::<(), libtmux::Error>(())
+    /// ```
+    #[must_use = "use the returned builder to retain the environment"]
+    pub fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
+        self.environment.insert(key.into(), Some(value.into()));
+        self
+    }
+
+    /// Remove an inherited variable from every tmux client process.
+    ///
+    /// A later [`Self::env`] with the same name replaces the removal. Server
+    /// selection variables listed by [`Self::env`] cannot be removed here.
+    /// Invalid names are refused by [`Self::build`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = libtmux::Server::builder()
+    ///     .env_remove("SERVICE_CREDENTIAL")
+    ///     .build()?;
+    /// # let _ = server;
+    /// # Ok::<(), libtmux::Error>(())
+    /// ```
+    #[must_use = "use the returned builder to retain the environment removal"]
+    pub fn env_remove(mut self, key: impl Into<OsString>) -> Self {
+        self.environment.insert(key.into(), None);
+        self
+    }
+
     /// Set the per-command dispatch deadline.
     ///
     /// The deadline includes waiting for dispatch capacity and running the
@@ -291,8 +346,9 @@ impl ServerBuilder {
     /// # Errors
     ///
     /// Returns [`Error::InvalidServerConfiguration`] for invalid selector,
-    /// path, color, working-directory, or socket-root inputs, including a
-    /// value read from either variable.
+    /// path, color, working-directory, socket-root, or client-environment inputs,
+    /// including a value read from either variable. Environment names must be
+    /// nonempty and contain neither NUL nor `=`; values must not contain NUL.
     ///
     /// # Examples
     ///
@@ -312,15 +368,19 @@ impl ServerBuilder {
                 ));
             }
         };
+        let context = BuildContext::capture()
+            .with_client_environment(&self.environment)
+            .map_err(Error::invalid_server_configuration)?;
         let configuration = CoreConfiguration::resolve(
             &selection,
             self.config_file,
             self.colors,
             self.executable,
             self.timeout,
-            BuildContext::capture(),
+            context,
         )
         .map_err(Error::invalid_server_configuration)?
+        .with_client_environment(self.environment)
         .with_limits(self.output_limits, self.dispatch_limits);
         #[cfg(feature = "control-mode")]
         let configuration = configuration.with_control_client_limits(self.control_client_limits);

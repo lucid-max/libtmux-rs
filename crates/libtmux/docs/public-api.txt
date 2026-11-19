@@ -609,6 +609,8 @@ function libtmux::ServerBuilder::config_file: fn(self, path: impl Into<PathBuf>)
 function libtmux::ServerBuilder::control_client_limits: const fn(self, limits: libtmux::ControlClientLimits) -> Self
 function libtmux::ServerBuilder::default_timeout: const fn(self, timeout: Duration) -> Self
 function libtmux::ServerBuilder::dispatch_limits: const fn(self, limits: libtmux::DispatchLimits) -> Self
+function libtmux::ServerBuilder::env: fn(self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self
+function libtmux::ServerBuilder::env_remove: fn(self, key: impl Into<OsString>) -> Self
 function libtmux::ServerBuilder::output_limits: const fn(self, limits: libtmux::OutputLimits) -> Self
 function libtmux::ServerBuilder::socket_name: fn(self, name: impl Into<OsString>) -> Self
 function libtmux::ServerBuilder::socket_path: fn(self, path: impl Into<PathBuf>) -> Self
@@ -2447,9 +2449,12 @@ variant libtmux::ScopeError::OperationAndCleanup
 variant libtmux::ServerConfigurationErrorKind::ConflictingSocketSelectors
 variant libtmux::ServerConfigurationErrorKind::InvalidColorMode
 variant libtmux::ServerConfigurationErrorKind::InvalidConfigPath
+variant libtmux::ServerConfigurationErrorKind::InvalidEnvironmentName
+variant libtmux::ServerConfigurationErrorKind::InvalidEnvironmentValue
 variant libtmux::ServerConfigurationErrorKind::InvalidSocketName
 variant libtmux::ServerConfigurationErrorKind::InvalidSocketPath
 variant libtmux::ServerConfigurationErrorKind::MalformedTmuxVariable
+variant libtmux::ServerConfigurationErrorKind::ManagedEnvironmentVariable
 variant libtmux::ServerConfigurationErrorKind::NotInsideTmux
 variant libtmux::ServerConfigurationErrorKind::SocketRootUnavailable
 variant libtmux::ServerConfigurationErrorKind::WorkingDirectoryUnavailable

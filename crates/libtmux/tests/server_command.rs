@@ -37,6 +37,143 @@ assert_not_impl_any!(CommandResult: std::fmt::Display);
 assert_impl_all!(EngineCapabilities: Send, Sync);
 assert_impl_all!(ServerConfigurationErrorKind: Clone, Copy, std::fmt::Debug, Eq, Send, Sync);
 
+#[test]
+fn client_environment_rejects_invalid_and_managed_overrides() {
+    for key in ["", "contains=equals", "contains\0nul"] {
+        let error = Server::builder().env_remove(key).build().unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidServerConfiguration {
+                kind: ServerConfigurationErrorKind::InvalidEnvironmentName,
+                ..
+            }
+        ));
+    }
+    let sentinel = "private-value\0suffix";
+    let error = Server::builder()
+        .env("PRIVATE_VALUE", sentinel)
+        .build()
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        Error::InvalidServerConfiguration {
+            kind: ServerConfigurationErrorKind::InvalidEnvironmentValue,
+            ..
+        }
+    ));
+    assert!(!format!("{error:?} {error}").contains("private-value"));
+    for key in ["TMUX", "TMUX_PANE", "LIBTMUX_SOCKET", "LIBTMUX_SOCKET_PATH"] {
+        for builder in [
+            Server::builder().env(key, "value"),
+            Server::builder().env_remove(key),
+        ] {
+            assert!(matches!(
+                builder.build().unwrap_err(),
+                Error::InvalidServerConfiguration {
+                    kind: ServerConfigurationErrorKind::ManagedEnvironmentVariable,
+                    ..
+                }
+            ));
+        }
+    }
+    let builder = Server::builder().env("PRIVATE_VALUE", "private-builder-sentinel");
+    assert!(!format!("{builder:?}").contains("private-builder-sentinel"));
+}
+
+#[tokio::test]
+async fn real_tmux_client_environment_is_applied_before_server_start() {
+    const CHILD: &str = "LIBTMUX_CLIENT_ENV_CHILD";
+    const REMOVED: &str = "LIBTMUX_CLIENT_ENV_REMOVED";
+    const ADDED: &str = "LIBTMUX_CLIENT_ENV_ADDED";
+    if std::env::var_os(CHILD).is_none() {
+        let output = process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "real_tmux_client_environment_is_applied_before_server_start",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env(REMOVED, "inherited-sentinel")
+            .env(ADDED, "inherited-value")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let root = Path::new("/tmp/libtmux-rs-test");
+    fs::create_dir_all(root).unwrap();
+    let directory = tempfile::Builder::new()
+        .prefix("env-")
+        .tempdir_in(root)
+        .unwrap();
+    let real = std::env::var_os("LIBTMUX_TEST_TMUX").unwrap_or_else(|| "tmux".into());
+    let real = process::Command::new("sh")
+        .args(["-c", "command -v -- \"$1\"", "sh"])
+        .arg(real)
+        .output()
+        .unwrap();
+    assert!(real.status.success());
+    let real = PathBuf::from(String::from_utf8(real.stdout).unwrap().trim());
+    let executable = directory.path().join("tmux-client-env");
+    fs::write(&executable, format!(
+        "#!/bin/sh\n[ -z \"${{{REMOVED}+present}}\" ] || exit 71\n[ \"${ADDED}\" = public-value ] || exit 72\n[ \"$TMUX_TMPDIR\" = {} ] || exit 73\nexec {} \"$@\"\n",
+        shell_quote(directory.path()),
+        shell_quote(&real)
+    )).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let path = std::env::join_paths(std::iter::once(directory.path().to_path_buf()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .unwrap();
+    let server = Server::builder()
+        .tmux_executable("tmux-client-env")
+        .socket_name("client-env")
+        .config_file("/dev/null")
+        .env("PATH", path)
+        .env("TMUX_TMPDIR", directory.path().join("."))
+        .env(REMOVED, "temporary")
+        .env_remove(REMOVED)
+        .env_remove(ADDED)
+        .env(ADDED, "public-value")
+        .build()
+        .unwrap();
+    assert!(server.socket_path().starts_with(directory.path()));
+    let _guard = RealTmuxGuard {
+        socket: server.socket_path().to_path_buf(),
+    };
+    let started = server
+        .cmd(
+            Command::new("new-session")
+                .arg("-d")
+                .arg("-s")
+                .arg("environment")
+                .arg("--")
+                .arg("sleep")
+                .arg("120"),
+        )
+        .await
+        .unwrap();
+    assert!(started.success(), "{}", started.stderr_lossy());
+    let shown = server
+        .cmd(Command::new("show-environment").arg("-g").arg(ADDED))
+        .await
+        .unwrap();
+    assert!(shown.success());
+    assert_eq!(shown.stdout(), format!("{ADDED}=public-value\n").as_bytes());
+    let absent = server
+        .cmd(Command::new("show-environment").arg("-g").arg(REMOVED))
+        .await
+        .unwrap();
+    assert!(!absent.success());
+    assert_eq!(std::env::var(REMOVED).unwrap(), "inherited-sentinel");
+    assert_eq!(std::env::var(ADDED).unwrap(), "inherited-value");
+    server.shutdown().await.unwrap();
+}
+
 fn hash(value: &Server) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
