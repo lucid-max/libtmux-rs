@@ -370,8 +370,8 @@ impl ServerBuilder {
                 ));
             }
         };
-        let context = BuildContext::capture()
-            .with_client_environment(&self.environment)
+        let (context, spawn_environment) = BuildContext::capture()
+            .with_client_environment(self.environment)
             .map_err(Error::invalid_server_configuration)?;
         let configuration = CoreConfiguration::resolve(
             &selection,
@@ -382,7 +382,7 @@ impl ServerBuilder {
             context,
         )
         .map_err(Error::invalid_server_configuration)?
-        .with_client_environment(self.environment)
+        .with_client_environment(spawn_environment)
         .with_limits(self.output_limits, self.dispatch_limits);
         #[cfg(feature = "control-mode")]
         let configuration = configuration.with_control_client_limits(self.control_client_limits);

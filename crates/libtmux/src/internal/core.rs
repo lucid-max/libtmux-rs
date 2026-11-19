@@ -57,9 +57,9 @@ pub(crate) struct BuildContext {
 impl BuildContext {
     pub(crate) fn with_client_environment(
         mut self,
-        environment: &BTreeMap<OsString, Option<OsString>>,
-    ) -> Result<Self, ServerConfigurationErrorKind> {
-        for (key, value) in environment {
+        mut environment: BTreeMap<OsString, Option<OsString>>,
+    ) -> Result<(Self, BTreeMap<OsString, Option<OsString>>), ServerConfigurationErrorKind> {
+        for (key, value) in &environment {
             let name = key.as_bytes();
             if name.is_empty() || name.contains(&0) || name.contains(&b'=') {
                 return Err(ServerConfigurationErrorKind::InvalidEnvironmentName);
@@ -70,16 +70,20 @@ impl BuildContext {
             {
                 return Err(ServerConfigurationErrorKind::InvalidEnvironmentValue);
             }
-            match name {
-                b"TMUX" | b"TMUX_PANE" | b"LIBTMUX_SOCKET" | b"LIBTMUX_SOCKET_PATH" => {
-                    return Err(ServerConfigurationErrorKind::ManagedEnvironmentVariable);
-                }
-                b"PATH" => self.path.clone_from(value),
-                b"TMUX_TMPDIR" => self.socket_root.clone_from(value),
-                _ => {}
+            if matches!(
+                name,
+                b"TMUX" | b"TMUX_PANE" | b"LIBTMUX_SOCKET" | b"LIBTMUX_SOCKET_PATH"
+            ) {
+                return Err(ServerConfigurationErrorKind::ManagedEnvironmentVariable);
             }
         }
-        Ok(self)
+        if let Some(path) = environment.remove(OsStr::new("PATH")) {
+            self.path = path;
+        }
+        if let Some(root) = environment.remove(OsStr::new("TMUX_TMPDIR")) {
+            self.socket_root = root;
+        }
+        Ok((self, environment))
     }
 
     pub(crate) fn new(
@@ -194,11 +198,6 @@ impl CoreConfiguration {
         environment: BTreeMap<OsString, Option<OsString>>,
     ) -> Self {
         for (key, value) in environment {
-            // These were resolved from BuildContext into the captured launch
-            // context already; keep its canonical socket root intact.
-            if matches!(key.as_bytes(), b"PATH" | b"TMUX_TMPDIR") {
-                continue;
-            }
             self.launch = match value {
                 Some(value) => self.launch.with_environment(key, value),
                 None => self.launch.with_environment_removed(key),
