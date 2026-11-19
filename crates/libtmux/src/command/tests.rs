@@ -122,6 +122,38 @@ fn sensitive_duplicate_refusals_disclose_only_the_declared_public_target() {
 }
 
 #[test]
+fn sensitive_missing_target_refusals_compare_original_bytes() {
+    for (stderr, expected_gone) in [
+        (
+            b"can't find session: public-\xef\xbf\xbd\n".as_slice(),
+            true,
+        ),
+        (b"can't find session: public-\xff\n".as_slice(), false),
+        (b"can't find session: other-session\n".as_slice(), false),
+        (b"no current target\n".as_slice(), false),
+    ] {
+        let result = command_result(
+            Command::new("select-pane").sensitive_arg("private-payload"),
+            exit_status(1),
+            b"",
+            stderr,
+        );
+        let error = result
+            .refusal_for_public_target("select-pane", "public-\u{fffd}")
+            .unwrap();
+        assert_eq!(
+            matches!(&error, crate::Error::ObjectGone { .. }),
+            expected_gone
+        );
+        if !expected_gone {
+            assert!(matches!(error, crate::Error::CommandFailed { .. }));
+            assert!(!format!("{error:?} {error}").contains("public-"));
+        }
+        assert!(!format!("{error:?} {error}").contains("private-payload"));
+    }
+}
+
+#[test]
 fn dispatch_lowering_escapes_only_each_final_semicolon() {
     let cases: &[(&[u8], &[u8])] = &[
         (b";", b"\\;"),

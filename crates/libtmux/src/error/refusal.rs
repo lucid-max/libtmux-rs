@@ -168,19 +168,18 @@ impl Error {
         let stderr = result.stderr_lossy().into_owned();
         if result.command().sensitive_argument_count() > 0 {
             let classified = Self::refused(command, result.exit_code(), stderr, target);
-            if matches!(
-                &classified,
-                Self::ObjectGone { id, .. }
-                    if target.is_some_and(|target| id == &target.to_string_lossy())
-            ) || matches!(classified, Self::ServerGone { .. })
-                || matches!(classified, Self::SessionExists { .. })
-                    && target.is_some_and(|target| {
-                        result
-                            .stderr()
-                            .trim_ascii()
-                            .strip_prefix(b"duplicate session:")
-                            .is_some_and(|echo| echo.trim_ascii() == target.as_bytes())
-                    })
+            let public_echo_matches = target.is_some_and(|target| {
+                let stderr = result.stderr().trim_ascii();
+                stderr
+                    .iter()
+                    .position(|byte| *byte == b':')
+                    .is_some_and(|colon| stderr[colon + 1..].trim_ascii() == target.as_bytes())
+            });
+            if matches!(classified, Self::ServerGone { .. })
+                || matches!(
+                    classified,
+                    Self::ObjectGone { .. } | Self::SessionExists { .. }
+                ) && public_echo_matches
             {
                 return classified;
             }
